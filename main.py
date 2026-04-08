@@ -1,17 +1,3 @@
-"""
-XAU/USD Strategic Alert Backend
-================================
-Stack : FastAPI + WebSocket + APScheduler
-Source : Finnhub (free tier)
-Deploy : Railway.app
-Symbols used:
-GDX -> "GDX" (VanEck Gold Miners ETF)
-DXY -> "UUP" (Invesco DB USD Bull ETF - best free proxy for DXY)
-TIPS -> "TIP" (iShares TIPS Bond ETF - proxy real yield, INVERSE logic)
-Note on TIPS inversion:
-TIP ETF price UP = real yields DOWN = matrix key "DOWN" (bullish gold)
-TIP ETF price DOWN = real yields UP = matrix key "UP" (bearish gold)
-"""
 import asyncio
 import logging
 import os
@@ -22,38 +8,32 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-# ─── CONFIG ────────────────────────────────────────────────────────────────────
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "YOUR_FINNHUB_KEY_HERE")
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "YOUR_KEY_HERE")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL", "60"))
-TREND_LOOKBACK = 3 # prices needed to confirm a trend
+TREND_LOOKBACK = 3
 ALERT_HISTORY_MAX = 50
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
-# ─── STRATEGIC MATRIX XAU/USD ──────────────────────────────────────────────────
 MATRIX = {
-"UP-DOWN-DOWN": {"signal": "FORTEMENT HAUSSIER", "conviction": 5, "action": "LONG - entrée "UP-DOWN-UP": {"signal": "HAUSSIER MODÉRÉ", "conviction": 3, "action": "LONG - taille "UP-UP-DOWN": {"signal": "NEUTRE / HAUSSIER", "conviction": 2, "action": "LONG - attendre "DOWN-DOWN-DOWN": {"signal": "NEUTRE / BAISSIER", "conviction": 2, "action": "FLAT ou SHORT
-"DOWN-UP-UP": {"signal": "FORTEMENT BAISSIER", "conviction": 5, "action": "SHORT - entrée "DOWN-UP-DOWN": {"signal": "BAISSIER MODÉRÉ", "conviction": 3, "action": "SHORT - taille "UP-UP-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces "DOWN-DOWN-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces }
+"UP-DOWN-DOWN": {"signal": "FORTEMENT HAUSSIER", "conviction": 5, "action": "LONG - entree "UP-DOWN-UP": {"signal": "HAUSSIER MODERE", "conviction": 3, "action": "LONG - taille "UP-UP-DOWN": {"signal": "NEUTRE / HAUSSIER", "conviction": 2, "action": "LONG - attendre "DOWN-DOWN-DOWN": {"signal": "NEUTRE / BAISSIER", "conviction": 2, "action": "FLAT ou SHORT "DOWN-UP-UP": {"signal": "FORTEMENT BAISSIER", "conviction": 5, "action": "SHORT - entree "DOWN-UP-DOWN": {"signal": "BAISSIER MODERE", "conviction": 3, "action": "SHORT - taille "UP-UP-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces "DOWN-DOWN-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces }
 SYMBOLS = {
-"GDX": "GDX", # Gold Miners
-"DXY": "UUP", # USD proxy
-"TIPS": "TIP", # Real yield proxy (inverted)
+"GDX": "GDX",
+"DXY": "UUP",
+"TIPS": "TIP",
 }
-# ─── SHARED STATE ──────────────────────────────────────────────────────────────
-price_history: dict[str, deque] = {k: deque(maxlen=TREND_LOOKBACK + 1) for k in SYMBOLS}
-last_prices: dict[str, Optional[float]]= {k: None for k in SYMBOLS}
-current_trends: dict[str, Optional[str]] = {k: None for k in SYMBOLS}
-current_signal: Optional[dict] = None
-alert_history: deque = deque(maxlen=ALERT_HISTORY_MAX)
-ws_clients: list[WebSocket] = []
-# ─── FASTAPI ───────────────────────────────────────────────────────────────────
+price_history = {k: deque(maxlen=TREND_LOOKBACK + 1) for k in SYMBOLS}
+last_prices = {k: None for k in SYMBOLS}
+current_trends = {k: None for k in SYMBOLS}
+current_signal = None
+alert_history = deque(maxlen=ALERT_HISTORY_MAX)
+ws_clients = []
 app = FastAPI(title="XAU/USD Matrix Alert API", version="1.0.0")
 app.add_middleware(
 CORSMiddleware,
-allow_origins=["*"], # Lock to your frontend URL in production
+allow_origins=["*"],
 allow_methods=["*"],
 allow_headers=["*"],
 )
-# ─── FINNHUB FETCH ─────────────────────────────────────────────────────────────
 async def fetch_quote(symbol: str) -> Optional[float]:
 url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={FINNHUB_API_KEY}"
 try:
@@ -62,12 +42,11 @@ r = await client.get(url)
 r.raise_for_status()
 price = r.json().get("c")
 if price and float(price) > 0:
-logger.info(f" {symbol:6s} → {price:.4f}")
+logger.info(f" {symbol} -> {price:.4f}")
 return float(price)
 except Exception as e:
 logger.warning(f"Finnhub error [{symbol}]: {e}")
 return None
-# ─── TREND LOGIC ───────────────────────────────────────────────────────────────
 def compute_trend(prices: deque) -> Optional[str]:
 if len(prices) < 2:
 return None
@@ -76,22 +55,19 @@ prior_avg = sum(list(prices)[:-1]) / (len(prices) - 1)
 pct = (latest - prior_avg) / prior_avg * 100
 if pct > 0.10: return "UP"
 elif pct < -0.10: return "DOWN"
-return None # flat - insufficient conviction
-# ─── MATRIX EVALUATION ─────────────────────────────────────────────────────────
+return None
 def evaluate_matrix(trends: dict) -> Optional[dict]:
 gdx = trends.get("GDX")
 dxy = trends.get("DXY")
 tips = trends.get("TIPS")
 if not all([gdx, dxy, tips]):
 return None
-# TIPS ETF is INVERSE to real yield direction
 tips_key = "DOWN" if tips == "UP" else "UP"
 key = f"{gdx}-{dxy}-{tips_key}"
 row = MATRIX.get(key)
 if row:
 return {**row, "key": key, "tips_etf_trend": tips, "tips_yield_direction": tips_key}
 return None
-# ─── BROADCAST ─────────────────────────────────────────────────────────────────
 async def broadcast(payload: dict):
 dead = []
 for ws in ws_clients:
@@ -101,10 +77,9 @@ except Exception:
 dead.append(ws)
 for ws in dead:
 ws_clients.remove(ws)
-# ─── POLL CYCLE ────────────────────────────────────────────────────────────────
 async def poll_and_evaluate():
 global current_signal, current_trends
-logger.info("── Poll cycle ──")
+logger.info("Poll cycle starting")
 for asset_id, symbol in SYMBOLS.items():
 price = await fetch_quote(symbol)
 if price is not None:
@@ -122,7 +97,6 @@ payload = {
 "signal": new_signal,
 "data_points": {k: len(v) for k, v in price_history.items()},
 }
-# Detect signal change → fire alert
 prev_key = current_signal.get("key") if current_signal else None
 new_key = new_signal.get("key") if new_signal else None
 if new_signal and new_key != prev_key:
@@ -139,22 +113,19 @@ alert = {
 }
 alert_history.appendleft(alert)
 payload["alert"] = alert
-logger.info(f"ALERT → {new_signal['signal']} (conviction {new_signal['conviction']}/5)")
-current_signal = new_signal
+logger.info(f"ALERT -> {new_signal['signal']} (conviction {new_signal['conviction']}/current_signal = new_signal
 await broadcast(payload)
-logger.info(f"Broadcast → {len(ws_clients)} client(s)")
-# ─── SCHEDULER ─────────────────────────────────────────────────────────────────
+logger.info(f"Broadcast -> {len(ws_clients)} client(s)")
 scheduler = AsyncIOScheduler()
 @app.on_event("startup")
 async def startup():
 scheduler.add_job(poll_and_evaluate, "interval", seconds=POLL_INTERVAL_SECONDS, id="poll")
 scheduler.start()
 logger.info(f"Scheduler started - poll every {POLL_INTERVAL_SECONDS}s")
-asyncio.create_task(poll_and_evaluate()) # immediate first run
+asyncio.create_task(poll_and_evaluate())
 @app.on_event("shutdown")
 async def shutdown():
 scheduler.shutdown()
-# ─── REST ENDPOINTS ────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
 return {"status": "ok", "service": "XAU/USD Matrix Alert API v1.0"}
@@ -173,13 +144,11 @@ return {"alerts": list(alert_history)}
 @app.get("/matrix")
 async def get_matrix():
 return {"matrix": MATRIX, "symbols": SYMBOLS}
-# ─── WEBSOCKET ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
 await ws.accept()
 ws_clients.append(ws)
 logger.info(f"WS connected - total: {len(ws_clients)}")
-# Send full state on connect
 try:
 await ws.send_json({
 "type": "connected",
@@ -190,7 +159,7 @@ await ws.send_json({
 "history": list(alert_history)[:10],
 })
 while True:
-await ws.receive_text() # keep alive / ignore pings
+await ws.receive_text()
 except WebSocketDisconnect:
 pass
 except Exception as e:
