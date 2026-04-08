@@ -6,8 +6,8 @@ Source : Finnhub (free tier)
 Deploy : Railway.app
 Symbols used:
 GDX -> "GDX" (VanEck Gold Miners ETF)
-DXY -> "UUP" (Invesco DB USD Bull ETF — best free proxy for DXY)
-TIPS -> "TIP" (iShares TIPS Bond ETF — proxy real yield, INVERSE logic)
+DXY -> "UUP" (Invesco DB USD Bull ETF - best free proxy for DXY)
+TIPS -> "TIP" (iShares TIPS Bond ETF - proxy real yield, INVERSE logic)
 Note on TIPS inversion:
 TIP ETF price UP = real yields DOWN = matrix key "DOWN" (bullish gold)
 TIP ETF price DOWN = real yields UP = matrix key "UP" (bearish gold)
@@ -31,8 +31,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 # ─── STRATEGIC MATRIX XAU/USD ──────────────────────────────────────────────────
 MATRIX = {
-"UP-DOWN-DOWN": {"signal": "FORTEMENT HAUSSIER", "conviction": 5, "action": "LONG — entrée "UP-DOWN-UP": {"signal": "HAUSSIER MODÉRÉ", "conviction": 3, "action": "LONG — taille "UP-UP-DOWN": {"signal": "NEUTRE / HAUSSIER", "conviction": 2, "action": "LONG — attendre "DOWN-DOWN-DOWN": {"signal": "NEUTRE / BAISSIER", "conviction": 2, "action": "FLAT ou SHORT
-"DOWN-UP-UP": {"signal": "FORTEMENT BAISSIER", "conviction": 5, "action": "SHORT — entrée "DOWN-UP-DOWN": {"signal": "BAISSIER MODÉRÉ", "conviction": 3, "action": "SHORT — taille "UP-UP-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT — forces "DOWN-DOWN-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT — forces }
+"UP-DOWN-DOWN": {"signal": "FORTEMENT HAUSSIER", "conviction": 5, "action": "LONG - entrée "UP-DOWN-UP": {"signal": "HAUSSIER MODÉRÉ", "conviction": 3, "action": "LONG - taille "UP-UP-DOWN": {"signal": "NEUTRE / HAUSSIER", "conviction": 2, "action": "LONG - attendre "DOWN-DOWN-DOWN": {"signal": "NEUTRE / BAISSIER", "conviction": 2, "action": "FLAT ou SHORT
+"DOWN-UP-UP": {"signal": "FORTEMENT BAISSIER", "conviction": 5, "action": "SHORT - entrée "DOWN-UP-DOWN": {"signal": "BAISSIER MODÉRÉ", "conviction": 3, "action": "SHORT - taille "UP-UP-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces "DOWN-DOWN-UP": {"signal": "NEUTRE", "conviction": 1, "action": "FLAT - forces }
 SYMBOLS = {
 "GDX": "GDX", # Gold Miners
 "DXY": "UUP", # USD proxy
@@ -76,7 +76,7 @@ prior_avg = sum(list(prices)[:-1]) / (len(prices) - 1)
 pct = (latest - prior_avg) / prior_avg * 100
 if pct > 0.10: return "UP"
 elif pct < -0.10: return "DOWN"
-return None # flat — insufficient conviction
+return None # flat - insufficient conviction
 # ─── MATRIX EVALUATION ─────────────────────────────────────────────────────────
 def evaluate_matrix(trends: dict) -> Optional[dict]:
 gdx = trends.get("GDX")
@@ -149,7 +149,7 @@ scheduler = AsyncIOScheduler()
 async def startup():
 scheduler.add_job(poll_and_evaluate, "interval", seconds=POLL_INTERVAL_SECONDS, id="poll")
 scheduler.start()
-logger.info(f"Scheduler started — poll every {POLL_INTERVAL_SECONDS}s")
+logger.info(f"Scheduler started - poll every {POLL_INTERVAL_SECONDS}s")
 asyncio.create_task(poll_and_evaluate()) # immediate first run
 @app.on_event("shutdown")
 async def shutdown():
@@ -178,7 +178,7 @@ return {"matrix": MATRIX, "symbols": SYMBOLS}
 async def websocket_endpoint(ws: WebSocket):
 await ws.accept()
 ws_clients.append(ws)
-logger.info(f"WS connected — total: {len(ws_clients)}")
+logger.info(f"WS connected - total: {len(ws_clients)}")
 # Send full state on connect
 try:
 await ws.send_json({
@@ -198,4 +198,4 @@ logger.warning(f"WS error: {e}")
 finally:
 if ws in ws_clients:
 ws_clients.remove(ws)
-logger.info(f"WS disconnected — total: {len(ws_clients)}")
+logger.info(f"WS disconnected - total: {len(ws_clients)}")
